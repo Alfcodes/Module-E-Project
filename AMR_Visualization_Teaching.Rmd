@@ -1,0 +1,1457 @@
+---
+title: "AMR Data Visualization in R"
+subtitle: "A Step-by-Step Teaching Guide for AMR Surveillance Professionals"
+author: "Alfred Bortey (DR. AMR)"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    theme: flatly
+    highlight: tango
+    df_print: paged
+    code-tools: true
+    #code_folding: show
+---
+
+```{css, echo=FALSE}
+/* ── custom teaching styles ────────────────────────────────────── */
+body { font-family: 'Segoe UI', Helvetica, sans-serif; font-size: 15px; color: #2c3e50; }
+h1, h2, h3 { color: #1A4A8A; }
+h1 { border-bottom: 3px solid #E8B800; padding-bottom: 8px; }
+
+.learn-box {
+  background: #EBF3FB; border-left: 5px solid #1A4A8A;
+  padding: 12px 16px; border-radius: 4px; margin: 16px 0;
+}
+.warn-box {
+  background: #FFF8E1; border-left: 5px solid #E8B800;
+  padding: 12px 16px; border-radius: 4px; margin: 16px 0;
+}
+.tip-box {
+  background: #EAFAF1; border-left: 5px solid #27AE60;
+  padding: 12px 16px; border-radius: 4px; margin: 16px 0;
+}
+.danger-box {
+  background: #FDEDEC; border-left: 5px solid #C0392B;
+  padding: 12px 16px; border-radius: 4px; margin: 16px 0;
+}
+.exercise-box {
+  background: #F5EEF8; border: 2px solid #8E44AD;
+  padding: 12px 16px; border-radius: 6px; margin: 16px 0;
+}
+pre { background: #1e2330; color:  #1A4A8A; border-radius: 6px; padding: 14px; }
+code { color: #8B0000; background: #f8f2f2; padding: 1px 4px; border-radius: 3px; }
+pre code { color: #1e2339; background: transparent; }
+.caption { font-size: 13px; color: #7f8c8d; font-style: italic; text-align: center; margin-top: -10px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th { background: #1A4A8A; color: white; padding: 8px 12px; }
+td { padding: 6px 12px; border-bottom: 1px solid #e8e8e8; }
+tr:nth-child(even) { background: #f4f8fd; }
+```
+
+---
+
+::: {.learn-box}
+**Welcome to AMR Data Visualization**
+
+By the end of this guide you will be able to:
+
+- Import real-world AMR data from Excel into R (including messy, unclean data)
+- Clean and prepare the data for analysis
+- Create five core chart types used in AMR surveillance
+- Interpret each chart in a public health context
+- Save publication-quality figures
+
+
+
+**Time needed:** Approximately 3–4 hours (work through it section by section).
+:::
+
+---
+
+# Before You Start
+
+## What you need installed
+
+Run this once to install all packages used in this guide.  
+You only need to do this **one time** — after that, just load the packages with `library()`.
+
+```{r install, eval=FALSE}
+# ── Run this block ONCE to install all required packages ──────────────────
+# (Remove the # from the install.packages line below if needed)
+
+# install.packages(c(
+#   "readxl",      # read Excel files
+#   "dplyr",       # data manipulation
+#   "tidyr",       # reshaping data
+#   "stringr",     # text/string cleaning
+#   "lubridate",   # working with dates
+#   "ggplot2",     # all charts
+#   "scales",      # percentage labels on axes
+#   "viridis",     # colourblind-friendly palettes
+#   "patchwork",   # combine multiple plots
+#   "janitor",     # clean column names
+#   "knitr",       # table formatting in reports
+#   "kableExtra"   # extra table styling
+# ))
+```
+
+## Load packages
+
+Every time you open R and start working, you need to load the packages:
+
+```{r setup, message=FALSE, warning=FALSE}
+library(readxl)      # reading Excel files
+library(dplyr)       # data manipulation: filter, mutate, group_by, summarise
+library(tidyr)       # reshaping: pivot_longer, pivot_wider
+library(stringr)     # string cleaning: str_to_upper, str_trim, str_detect
+library(lubridate)   # date parsing: dmy(), mdy(), ymd()
+library(ggplot2)     # all visualizations
+library(scales)      # axis label formatting (%, commas)
+library(viridis)     # colour palettes accessible to colourblind readers
+library(patchwork)   # combine multiple ggplot2 charts side by side
+library(janitor)     # clean_names() standardises column names
+library(knitr)       # kable() for neat tables
+library(kableExtra)  # extra kable formatting
+```
+
+## Set a consistent plot theme
+
+We define one theme here and reuse it on every chart so they all look consistent.
+Think of this like setting a style template in PowerPoint — once, not on every slide.
+
+```{r theme}
+# ── Consistent chart theme ────────────────────────────────────────────────
+amr_theme <- theme_minimal(base_size = 13) +
+  theme(
+    plot.title    = element_text(colour = "#1A4A8A", face = "bold",
+                                 size = 14, hjust = 0),
+    plot.subtitle = element_text(colour = "#7f8c8d", size = 11, hjust = 0),
+    plot.caption  = element_text(colour = "#aaaaaa", size = 9,
+                                 hjust = 1, face = "italic"),
+    axis.title    = element_text(face = "bold", size = 11),
+    axis.text     = element_text(size = 10),
+    legend.position  = "bottom",
+    legend.title     = element_text(face = "bold", size = 10),
+    panel.grid.minor = element_blank(),
+    strip.text       = element_text(face = "bold", colour = "#1A4A8A")
+  )
+
+# Apply this theme globally — all charts will use it automatically
+theme_set(amr_theme)
+```
+
+---
+
+# Importing Data from Excel
+
+::: {.warn-box}
+**Why this step matters**
+
+In real AMR surveillance, data rarely arrives in a perfectly clean format. It typically comes from:
+
+- A WHONET export (`.csv` or `.dbf`)
+- A lab information system (LIS) export (`.xlsx`)
+- A paper form that someone typed into Excel
+- A DHIMS2 or HMIS download
+
+Our teaching Excel file (`AMR_Teaching_Data.xlsx`) has been designed to look like real lab data — with inconsistent names, mixed date formats, blank rows, and extra columns. We will import it and clean it together.
+:::
+
+## Looking at the Excel workbook first
+
+Our workbook has **five sheets**. Let's see what is available:
+
+```{r see-sheets}
+# ── Path to your Excel file ───────────────────────────────────────────────
+# IMPORTANT: Change this path to wherever you saved the Excel file.
+# Examples:
+#   Windows:  "C:/Users/YourName/Documents/AMR_Teaching_Data.xlsx"
+#   Mac/Linux: "/home/yourname/AMR_Teaching_Data.xlsx"
+
+excel_file <- "AMR_Teaching_Data.xlsx"
+
+# List all sheets in the workbook
+excel_sheets(excel_file)
+```
+
+The output shows all available sheets. We will use:
+
+| Sheet | What it contains |
+|-------|-----------------|
+| `Raw_AST_Data` | 130 isolate records — messy, realistic |
+| `Consumption` | Monthly antibiotic use (DDD & DOT) |
+| `MIC_Values` | Raw MIC values for histogram and box plot |
+| `Quarterly_R` | Pre-aggregated quarterly resistance rates |
+
+## Import Sheet 1: Raw AST data (the messy sheet)
+
+```{r import-raw}
+# ── Import the raw AST data ───────────────────────────────────────────────
+# skip = 0 means start from row 1 (the header row)
+# .name_repair = "unique" handles any duplicate column names
+
+raw_ast <- read_excel(
+  excel_file,
+  sheet = "Raw_AST_Data",
+  skip  = 0,
+  .name_repair = "unique"
+)
+
+# Quick look at the data
+cat("Rows:", nrow(raw_ast), "\n")
+cat("Columns:", ncol(raw_ast), "\n\n")
+
+# Show first 8 rows
+head(raw_ast, 8)
+```
+
+::: {.warn-box}
+**What you will notice in this data (and why it is realistic)**
+
+- Organism names are inconsistent: `"Klebsiella pneumoniae"`, `"K. pneumoniae"`, `"KLEBSIELLA PNEUMONIAE"` all appear
+- Some AST results say `"R"`, others say `"r"` or `"res"` — same meaning, different format
+- Dates are in mixed formats: `2022-01-05`, `05/01/2022`, `Jan 05 2022`
+- There are blank rows (common in Excel exports)
+- There is a row that is a repeated header (another common Excel artifact)
+- Columns like `EXTRA_COL_IGNORE` and `Notes` are irrelevant
+
+This is normal. The next section shows you how to fix all of this.
+:::
+
+---
+
+# Data Cleaning: Making the Data Ready for Analysis
+
+Cleaning data is not glamorous, but it is **the most important step**. Bad data produces
+misleading results. This section walks through each cleaning step and explains *why* each
+one is necessary.
+
+## Step 1 — Remove completely blank rows
+
+Blank rows cause errors later when R tries to count isolates or calculate percentages.
+
+```{r clean-blanks}
+# ── Remove rows where ALL key columns are empty ───────────────────────────
+raw_ast <- raw_ast %>%
+  # filter() keeps rows where the condition is TRUE
+  # !is.na() means "is NOT missing"
+  # We check PatientID — if it is missing, the row is blank or a repeat header
+  filter(!is.na(PatientID) & PatientID != "PatientID")
+  # PatientID != "PatientID" removes any rows where the header was repeated
+
+cat("Rows remaining after removing blanks:", nrow(raw_ast), "\n")
+```
+
+## Step 2 — Standardise column names
+
+Column names with spaces, capital letters or special characters cause problems in R code.
+`janitor::clean_names()` converts everything to lowercase with underscores:
+
+```{r clean-names}
+raw_ast <- raw_ast %>%
+  clean_names()
+
+# See the new column names
+names(raw_ast)
+head(raw_ast)
+```
+
+Notice how `CollectionDate` became `collection_date`, `PatientID` became `patient_id`, etc.
+This makes typing easier and prevents errors.
+
+## Step 3 — Remove irrelevant columns
+
+```{r clean-cols}
+# Drop columns we do not need
+raw_ast <- raw_ast %>%
+  dplyr::select(-extra_col_ignore, -notes)
+  # select(-colname) removes a column
+```
+
+## Step 4 — Standardise organism names
+
+This is one of the most important steps in AMR surveillance data cleaning.
+We group all spelling variants into one standard name.
+
+```{r clean-organisms}
+# ── Standardise organism names ────────────────────────────────────────────
+# str_detect() searches for a pattern inside a text string
+# str_to_upper() converts text to ALL CAPS so we can match regardless of case
+
+raw_ast <- raw_ast %>%
+  mutate(
+    # First, convert everything to uppercase for matching
+    org_upper = str_to_upper(str_trim(organism)),
+
+    # Then assign a standard name based on what we detect
+    organism_std = case_when(
+      str_detect(org_upper, "KLEBSIELLA|K\\. PNEUM")   ~ "Klebsiella pneumoniae",
+      str_detect(org_upper, "ESCHERICHIA|E\\. COLI|E\\.COLI") ~ "Escherichia coli",
+      str_detect(org_upper, "STAPHYLOCOCCUS|STAPH|MRSA|S\\. AUREUS") ~ "Staphylococcus aureus",
+      str_detect(org_upper, "PSEUDOMONAS|P\\. AERUG") ~ "Pseudomonas aeruginosa",
+      str_detect(org_upper, "ACINETOBACTER|A\\. BAUM") ~ "Acinetobacter baumannii",
+      TRUE ~ organism   # keep original if nothing matched (so we can review)
+    )
+  ) %>%
+  dplyr::select(-org_upper)  # remove the temporary column
+
+# Check: how many unique organism names do we have now?
+cat("Unique organism names after standardisation:\n")
+print(table(raw_ast$organism_std))
+```
+
+## Step 5 — Standardise AST results (R/I/S)
+
+```{r clean-ris}
+# ── Standardise AST result notation ──────────────────────────────────────
+# All columns from 'amp' to 'col' contain AST results
+# We want only R, I, S, or NA
+
+ast_cols <- c("amp","amc","ctx","mem","cip","gen","sxt","van","oxa","col")
+
+standardise_ris <- function(x) {
+  # Convert to uppercase and trim whitespace first
+  x <- str_to_upper(str_trim(as.character(x)))
+  case_when(
+    x %in% c("R", "RES", "RESISTANT")       ~ "R",
+    x %in% c("I", "INT", "INTERMEDIATE")    ~ "I",
+    x %in% c("S", "SUS", "SUSCEPTIBLE")     ~ "S",
+    x %in% c("NA", "N/A", "", "NULL")       ~ NA_character_,
+    TRUE                                     ~ NA_character_  # anything else → NA
+  )
+}
+
+raw_ast <- raw_ast %>%
+  mutate(across(
+    all_of(ast_cols[ast_cols %in% names(raw_ast)]),
+    standardise_ris
+  ))
+
+# Verify: should only see R, I, S, or NA now
+cat("Unique CIP values after standardisation:\n")
+print(table(raw_ast$cip, useNA = "ifany"))
+```
+
+## Step 6 — Parse dates
+
+Mixed date formats are extremely common in lab data across Africa and LMICs.
+`lubridate` can handle multiple formats with `parse_date_time()`:
+
+```{r clean-dates}
+# ── Parse dates from multiple formats ────────────────────────────────────
+# parse_date_time() tries each format in order until one works
+raw_ast <- raw_ast %>%
+  mutate(
+    collection_date = parse_date_time(
+      collection_date,
+      orders = c("ymd", "dmy", "mdy", "d b Y", "d-b-Y"),
+      quiet  = TRUE  # suppress warnings for each try
+    ),
+    # Create time period columns for trend analysis
+    year    = year(collection_date),
+    quarter = paste0("Q", quarter(collection_date), "-", year(collection_date)),
+    month   = month(collection_date, label = TRUE)
+  )
+
+cat("Date range in dataset:\n")
+cat("Earliest:", as.character(min(raw_ast$collection_date, na.rm=TRUE)), "\n")
+cat("Latest:  ", as.character(max(raw_ast$collection_date, na.rm=TRUE)), "\n")
+```
+
+## Step 7 — Apply the First Isolate Rule
+
+::: {.learn-box}
+**What is the First Isolate Rule?**
+
+When the same patient has the same organism cultured multiple times (e.g., an ICU
+patient with a persistent K. pneumoniae bloodstream infection cultured every week),
+including all of those results in resistance calculations **inflates** the resistance rate.
+
+The **CLSI M39-A4 guideline** requires that for cumulative susceptibility reporting
+(antibiograms), you keep only the **first isolate per patient per organism** within
+each analysis period.
+:::
+
+```{r first-isolate}
+# ── Apply First Isolate Rule ──────────────────────────────────────────────
+cat("Records BEFORE First Isolate Rule:", nrow(raw_ast), "\n")
+
+clean_data <- raw_ast %>%
+  arrange(patient_id, organism_std, specimen_type, collection_date) %>%
+  group_by(patient_id, organism_std) %>%
+  mutate(
+    isolate_rank  = row_number(),    # 1 = first isolate, 2 = second, etc.
+    is_first      = (isolate_rank == 1)
+  ) %>%
+  ungroup() %>%
+  filter(is_first) %>%              # keep only first isolates
+  dplyr::select(-isolate_rank, -is_first)
+
+cat("Records AFTER First Isolate Rule:", nrow(clean_data), "\n")
+cat("Isolates excluded:", nrow(raw_ast) - nrow(clean_data), "\n")
+```
+
+# Diiferent code for first isolate rule
+This considers situations where you might have genuinely different isolates from a patient because they have multiple infections from different sites or sources.
+
+```{r first-isolate-Different-source}
+# ── Apply First Isolate Rule ──────────────────────────────────────────────
+cat("Records BEFORE First Isolate Rule:", nrow(raw_ast), "\n")
+
+clean_data <- raw_ast %>%
+  arrange(patient_id, organism_std, specimen_type, collection_date) %>%
+  group_by(patient_id, organism_std, specimen_type) %>%
+  mutate(
+    isolate_rank  = row_number(),    # 1 = first isolate, 2 = second, etc.
+    is_first      = (isolate_rank == 1)
+  ) %>%
+  ungroup() %>%
+  filter(is_first) %>%              # keep only first isolates
+  dplyr::select(-isolate_rank, -is_first)
+
+cat("Records AFTER First Isolate Rule:", nrow(clean_data), "\n")
+cat("Isolates excluded:", nrow(raw_ast) - nrow(clean_data), "\n")
+```
+
+## Summary of cleaned data
+
+Let's check what we have:
+
+```{r clean-summary}
+# Organism frequency table
+organism_summary <- clean_data %>%
+  count(organism_std, name = "n_isolates") %>%
+  mutate(percent = round(n_isolates / sum(n_isolates) * 100, 1)) %>%
+  arrange(desc(n_isolates))
+
+kable(organism_summary,
+      col.names = c("Organism", "N isolates", "%"),
+      caption   = "Table 1. Organism frequency after cleaning and deduplication") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = FALSE)
+```
+
+---
+
+# Visualization 1: Bar Plot — Comparing Resistance Rates
+
+::: {.learn-box}
+**When to use a bar plot in AMR surveillance**
+
+Bar plots are used when you want to **compare a single number** (like % resistant)
+across different categories (like organisms, wards, or antibiotics).
+
+They are the most common chart in AMR reports because they are easy to read and
+communicate clearly to clinical and non-technical audiences.
+
+**AMR examples:**
+- Ciprofloxacin resistance in K. pneumoniae vs E. coli vs P. aeruginosa
+- MRSA rates across different wards
+- Resistance to different antibiotics for the same organism
+:::
+
+## Calculate resistance rates
+
+Before plotting, we need to calculate what we want to show.
+We will calculate **% resistant** with a 95% confidence interval (CI).
+
+```{r bar-calc}
+# ── Calculate resistance rates with 95% Wilson Score CI ──────────────────
+# Why Wilson Score CI? It works correctly even when n is small or
+# the proportion is near 0% or 100% — both very common in AMR data.
+
+calc_resistance_ci <- function(data, organism_name, antibiotic) {
+  col <- antibiotic   # the column in our data
+
+  data %>%
+    filter(organism_std == organism_name, !is.na(.data[[col]])) %>%
+    summarise(
+      organism   = organism_name,
+      antibiotic = toupper(antibiotic),
+      n_tested   = n(),
+      n_R        = sum(.data[[col]] == "R", na.rm = TRUE),
+      .groups    = "drop"
+    ) %>%
+    mutate(
+      pct_R = round(n_R / n_tested * 100, 1),
+      # Wilson Score CI calculation
+      p      = n_R / n_tested,
+      z      = 1.96,
+      denom  = 1 + z^2 / n_tested,
+      centre = (p + z^2 / (2 * n_tested)) / denom,
+      margin = z * sqrt(p*(1-p)/n_tested + z^2/(4*n_tested^2)) / denom,
+      ci_lo  = round(pmax(0, (centre - margin)*100), 1),
+      ci_hi  = round(pmin(100, (centre + margin)*100), 1)
+    ) %>%
+    dplyr::select(organism, antibiotic, n_tested, n_R, pct_R, ci_lo, ci_hi)
+}
+
+# Calculate for ciprofloxacin across all priority organisms
+cip_resistance <- bind_rows(
+  calc_resistance_ci(clean_data, "Klebsiella pneumoniae",  "cip"),
+  calc_resistance_ci(clean_data, "Escherichia coli",       "cip"),
+  calc_resistance_ci(clean_data, "Staphylococcus aureus",  "cip"),
+  calc_resistance_ci(clean_data, "Pseudomonas aeruginosa", "cip"),
+  calc_resistance_ci(clean_data, "Acinetobacter baumannii","cip")
+)
+
+# Show the table
+kable(cip_resistance,
+      col.names = c("Organism","Antibiotic","N tested","N resistant",
+                    "% Resistant","CI lower","CI upper"),
+      caption   = "Table 2. Ciprofloxacin resistance rates with 95% Wilson Score CI") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"))
+```
+
+#STREAMLINED CALCULATION
+Without having specify ncalculation for each antibiotic like in the previous section.
+
+```{r bar-calc-multiple}
+# ── Calculate resistance rates with 95% Wilson Score CI ──────────────────
+# Why Wilson Score CI? It works correctly even when n is small or
+# the proportion is near 0% or 100% — both very common in AMR data.
+
+calc_resistance_ci <- function(data, organism_name, antibiotic) {
+  col <- antibiotic   # the column in our data
+
+  data %>%
+    filter(organism_std == organism_name, !is.na(.data[[col]])) %>%
+    summarise(
+      organism   = organism_name,
+      antibiotic = toupper(antibiotic),
+      n_tested   = n(),
+      n_R        = sum(.data[[col]] == "R", na.rm = TRUE),
+      .groups    = "drop"
+    ) %>%
+    mutate(
+      pct_R = round(n_R / n_tested * 100, 1),
+      # Wilson Score CI calculation
+      p      = n_R / n_tested,
+      z      = 1.96,
+      denom  = 1 + z^2 / n_tested,
+      centre = (p + z^2 / (2 * n_tested)) / denom,
+      margin = z * sqrt(p*(1-p)/n_tested + z^2/(4*n_tested^2)) / denom,
+      ci_lo  = round(pmax(0, (centre - margin)*100), 1),
+      ci_hi  = round(pmin(100, (centre + margin)*100), 1)
+    ) %>%
+    dplyr::select(organism, antibiotic, n_tested, n_R, pct_R, ci_lo, ci_hi)
+}
+
+#Select antibiotic columns
+antibiotics <- names(clean_data)[
+  names(clean_data) %in% c("cip","gen","amk","ctx","fox","mem")
+]
+# Priority organisms
+priority_organisms <- c(
+  "Klebsiella pneumoniae",
+  "Escherichia coli",
+  "Staphylococcus aureus",
+  "Pseudomonas aeruginosa",
+  "Acinetobacter baumannii"
+)
+
+# Create combinations
+all_combinations <- expand.grid(
+  organism = priority_organisms,
+  antibiotic = antibiotics,
+  stringsAsFactors = FALSE
+)
+
+# Calculate resistance
+all_resistance <- all_combinations %>%
+  rowwise() %>%
+  do(
+    calc_resistance_ci(
+      clean_data,
+      .$organism,
+      .$antibiotic
+    )
+  ) %>%
+  ungroup()
+
+# Show the table
+kable(all_resistance,
+      col.names = c("Organism","Antibiotic","N tested","N resistant",
+                    "% Resistant","CI lower","CI upper"),
+      caption = "Table 2. Resistance rates with 95% Wilson CI") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"))
+
+```
+::: {.tip-box}
+**Reading the confidence interval**
+
+The 95% CI tells you the range within which the true resistance rate probably lies.
+A wide CI (e.g., 20–60%) means you have too few isolates tested — interpret with caution.
+A narrow CI (e.g., 44–52%) means you have enough data to be confident in the estimate.
+
+**Rule of thumb:** Only report a resistance rate formally if n ≥ 30 isolates.
+:::
+
+## Create the bar plot
+
+```{r bar-plot, fig.width=9, fig.height=5.5}
+# ── Add a colour variable based on resistance level ───────────────────────
+cip_resistance <- cip_resistance %>%
+  mutate(
+    res_category = case_when(
+      pct_R >= 70 ~ "High (≥70%)",
+      pct_R >= 40 ~ "Moderate (40–69%)",
+      TRUE        ~ "Low (<40%)"
+    ),
+    # Short organism labels for the axis
+    org_short = case_when(
+      organism == "Klebsiella pneumoniae"   ~ "K. pneumoniae",
+      organism == "Escherichia coli"        ~ "E. coli",
+      organism == "Staphylococcus aureus"   ~ "S. aureus",
+      organism == "Pseudomonas aeruginosa"  ~ "P. aeruginosa",
+      organism == "Acinetobacter baumannii" ~ "A. baumannii",
+      TRUE ~ organism
+    )
+  )
+
+# ── Build the bar chart ───────────────────────────────────────────────────
+p_bar <- ggplot(
+  cip_resistance,
+  aes(x    = reorder(org_short, -pct_R),  # reorder: tallest bar first
+      y    = pct_R,
+      fill = res_category)
+) +
+  # The bars
+  geom_col(width = 0.6, colour = "white") +
+
+  # Error bars showing the 95% CI
+  geom_errorbar(
+    aes(ymin = ci_lo, ymax = ci_hi),
+    width = 0.2, colour = "grey30", linewidth = 0.7
+  ) +
+
+  # Labels above each bar: percentage and n
+  geom_text(
+    aes(label = paste0(pct_R, "%\n(n=", n_tested, ")")),
+    vjust = -0.5, size = 3.2, colour = "grey20"
+  ) +
+
+  # Reference line at 50% — standard threshold for "high" resistance
+  geom_hline(
+    yintercept = 50, linetype = "dashed",
+    colour = "#c0392b", linewidth = 0.8
+  ) +
+  annotate(
+    "text", x = 5.4, y = 52,
+    label = "50% threshold", hjust = 1, size = 3, colour = "#c0392b"
+  ) +
+
+  # Colour fill: red for high, amber for moderate, green for low
+  scale_fill_manual(
+    values = c("High (≥70%)"       = "#e74c3c",
+               "Moderate (40–69%)" = "#e99e22",
+               "Low (<40%)"        = "#37ae69"),
+    name = "Resistance level"
+  ) +
+
+  # y-axis: 0–110% to leave room for labels above bars
+  scale_y_continuous(
+    limits = c(0, 110),
+    labels = function(x) paste0(x, "%")
+  ) +
+
+  # Axis labels and title
+  labs(
+    title    = "Ciprofloxacin resistance by organism — 2022",
+    subtitle = "First isolates only | Error bars = 95% Wilson Score CI | Dashed line = 50% threshold",
+    x        = NULL,
+    y        = "Resistance rate (%)",
+    caption  = "Data source: Teaching dataset | EUCAST 2025 breakpoints"
+  ) +
+
+  # Apply our consistent theme
+  theme(
+    axis.text.x = element_text(face = "italic", size = 11)
+  )
+
+# Display the plot
+p_bar
+```
+
+```{r bar-save, eval=FALSE}
+# ── Save the plot as a high-quality PNG ──────────────────────────────────
+# width and height are in inches; dpi = dots per inch (300 = print quality)
+ggsave(
+  filename = "bar_cip_resistance.png",
+  plot     = p_bar,
+  width    = 9,
+  height   = 5.5,
+  dpi      = 300
+)
+```
+
+::: {.learn-box}
+**Interpreting this chart**
+
+Looking at the bar chart:
+
+- **A. baumannii and P. aeruginosa** show very high ciprofloxacin resistance (red bars).
+  This means standard fluoroquinolones cannot be used empirically for infections
+  caused by these organisms at this hospital.
+- **S. aureus** is in the moderate range — ciprofloxacin remains somewhat useful
+  but should be confirmed by culture sensitivity.
+- **E. coli and K. pneumoniae** also show concerning levels of fluoroquinolone resistance.
+
+**Action implication:** The infection control team should review fluoroquinolone prescribing
+and consider restricting empirical use for Gram-negative hospital-acquired infections.
+:::
+
+::: {.exercise-box}
+**Exercise 1**
+
+Modify the bar chart code above to show **meropenem resistance** instead of ciprofloxacin.
+
+
+What do you notice about the meropenem resistance rates compared to ciprofloxacin?
+Why is this clinically important?
+:::
+
+---
+
+# Visualization 2: Histogram — MIC Distributions
+
+::: {.learn-box}
+**When to use a histogram in AMR surveillance**
+
+A histogram shows you the **distribution** (spread and shape) of a set of numbers.
+In AMR work, we use histograms for **MIC (minimum inhibitory concentration) values**
+to understand how a population of bacteria responds to an antibiotic.
+
+**Why this matters:**
+- A unimodal (single-peak) distribution near the susceptible range is reassuring
+- A bimodal (two-peak) distribution suggests a resistant subpopulation is emerging
+- The position of the EUCAST/CLSI breakpoint relative to the peaks tells you
+  how much of the population is captured on each side
+:::
+
+## Import MIC data
+
+```{r mic-import}
+# ── Import MIC values from the Excel workbook ─────────────────────────────
+mic_data <- read_excel(excel_file, sheet = "MIC_Values")
+
+# Standardise column names
+mic_data <- mic_data %>% clean_names()
+
+# Preview
+head(mic_data, 6)
+```
+
+## Prepare MIC data for plotting
+
+MIC values span a very wide range (0.03 to 64 mg/L or more).
+We use a **log₂ scale** because each doubling of MIC is one step in the standard
+serial dilution — so log₂ spacing is natural and standard in clinical microbiology.
+
+```{r mic-prep}
+# ── Focus on K. pneumoniae vs meropenem ──────────────────────────────────
+kp_mem_mic <- mic_data %>%
+  filter(
+    organism == "K. pneumoniae",
+    antibiotic == "Meropenem"
+  ) %>%
+  mutate(
+    # Convert MIC to log2 scale
+    mic_log2 = log2(mic_mg_l),
+    # Clean up the interpretation column
+    interpretation = str_to_upper(str_trim(interpretation)),
+    interpretation = factor(interpretation, levels = c("S","I","R"))
+  )
+
+cat("Number of K. pneumoniae meropenem isolates:", nrow(kp_mem_mic), "\n")
+cat("\nMIC value range:\n")
+print(summary(kp_mem_mic$mic_mgl))
+```
+
+## Create the histogram
+
+```{r hist-plot, fig.width=9, fig.height=5.5}
+# ── EUCAST 2025 breakpoint for K. pneumoniae meropenem ───────────────────
+# Susceptible: MIC ≤ 2 mg/L → log2(2) = 1
+bp_log2 <- log2(2)
+
+# ── Create x-axis labels (convert log2 back to mg/L) ─────────────────────
+# Standard MIC steps in clinical microbiology
+mic_steps    <- c(0.03, 0.06, 0.12, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64)
+log2_steps   <- log2(mic_steps)
+mic_labels   <- c("0.03","0.06","0.12","0.25","0.5","1","2","4","8","16","32","64")
+
+# ── Build the histogram ───────────────────────────────────────────────────
+p_hist <- ggplot(
+  kp_mem_mic,
+  aes(x = mic_log2, fill = interpretation)
+) +
+
+  # Histogram bars — binwidth = 1 means one bar per doubling dilution
+  geom_histogram(
+    binwidth = 1,
+    colour   = "white",
+    boundary = 0.5     # align bins to the standard MIC steps
+  ) +
+
+  # Breakpoint line
+  geom_vline(
+    xintercept = bp_log2 + 0.5,   # +0.5 puts line at the boundary between S and R
+    linetype   = "dashed",
+    colour     = "#2c3e50",
+    linewidth  = 1.2
+  ) +
+
+  # Annotation explaining the breakpoint line
+  annotate(
+    "text",
+    x = bp_log2 + 0.7, y = Inf,
+    label  = "EUCAST breakpoint\n(S ≤2 mg/L, R >2 mg/L)",
+    hjust  = 0, vjust = 1.5,
+    size   = 3.5, colour = "#2c3e50"
+  ) +
+
+  # Shaded background to show S and R zones
+  annotate("rect", xmin = -Inf, xmax = bp_log2 + 0.5,
+           ymin = -Inf, ymax = Inf,
+           fill = "#27ae60", alpha = 0.04) +
+  annotate("rect", xmin = bp_log2 + 0.5, xmax = Inf,
+           ymin = -Inf, ymax = Inf,
+           fill = "#e74c3c", alpha = 0.04) +
+
+  # Colour fill for S/I/R
+  scale_fill_manual(
+    values = c("S" = "#27ae60", "I" = "#e67e22", "R" = "#e74c3c"),
+    name   = "Interpretation",
+    labels = c("S" = "Susceptible (S)",
+               "I" = "Intermediate (I)",
+               "R" = "Resistant (R)")
+  ) +
+
+  # x-axis: show real MIC values, not log2 numbers
+  scale_x_continuous(
+    breaks = log2_steps,
+    labels = mic_labels
+  ) +
+
+  labs(
+    title    = "K. pneumoniae meropenem MIC distribution",
+    subtitle = "Each bar = one standard doubling dilution | Dashed line = EUCAST 2025 breakpoint",
+    x        = "MIC (mg/L) — log₂ scale",
+    y        = "Number of isolates",
+    caption  = "Data source: Teaching dataset | n = 40 isolates"
+  )
+
+p_hist
+```
+
+::: {.learn-box}
+**Interpreting this histogram**
+
+Look at the shape of the distribution:
+
+- **Susceptible cluster** (left of the breakpoint): Most isolates have MICs of 0.06–1 mg/L,
+  far below the EUCAST breakpoint of 2 mg/L. This suggests wild-type susceptibility.
+
+- **Resistant cluster** (right of the breakpoint): A smaller group of isolates has MICs
+  of 8–32 mg/L. This bimodal (two-peak) shape is a warning sign — it means a
+  resistant subpopulation is present alongside the susceptible wild type.
+
+- **Clinical implication:** Even though overall carbapenem resistance is moderate (~30%),
+  the presence of a resistant cluster should trigger: (1) molecular testing for
+  carbapenemase production (KPC, NDM, OXA), (2) strict contact precautions for
+  carbapenem-resistant isolates, and (3) antibiotic stewardship review.
+:::
+
+::: {.exercise-box}
+**Exercise 2**
+
+The `MIC_Values` sheet also contains data for:
+
+- `E. coli` vs `Ciprofloxacin`
+- `A. baumannii` vs `Meropenem`
+
+Repeat the histogram for one of these combinations.
+
+Do you see a bimodal or unimodal distribution? What does the shape tell you?
+:::
+
+---
+
+# Visualization 3: Box Plot — Comparing Distributions Across Groups
+
+::: {.learn-box}
+**When to use a box plot in AMR surveillance**
+
+Box plots are useful when you want to compare the **spread and central tendency**
+of MIC values across multiple groups at once — such as comparing MIC distributions
+across different wards, different time periods, or different specimen types.
+
+A single histogram shows you one group. A box plot shows you many groups side by side.
+
+**Reading a box plot:**
+
+- The **line inside the box** = median (middle value)
+- The **box edges** = Q1 (25th percentile) and Q3 (75th percentile)
+- The **whiskers** extend to 1.5× the interquartile range
+- **Dots beyond the whiskers** = outliers (unusually high or low values)
+:::
+
+## Prepare data: MIC by ward
+
+```{r box-prep}
+# ── Filter to K. pneumoniae ciprofloxacin for box plot ───────────────────
+kp_cip_mic <- mic_data %>%
+  filter(
+    organism   == "K. pneumoniae",
+    antibiotic == "Ciprofloxacin"
+  ) %>%
+  mutate(
+    mic_log2 = log2(mic_mg_l),
+    ward     = factor(ward,
+                      levels = c("ICU","SUR","MED","PED","OBS"))
+  )
+
+# How many isolates per ward?
+kp_cip_mic %>%
+  count(ward, name = "n") %>%
+  kable(caption = "Table 3. K. pneumoniae isolates by ward") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+## Create the box plot
+
+```{r box-plot, fig.width=9, fig.height=5.5}
+# EUCAST CIP breakpoint for K. pneumoniae: S ≤1, R >1
+bp_cip_log2 <- log2(1)
+
+p_box <- ggplot(
+  kp_cip_mic,
+  aes(x    = ward,
+      y    = mic_log2,
+      fill = ward)
+) +
+
+  # The box plots
+  geom_boxplot(
+    width         = 0.5,
+    colour        = "grey30",
+    outlier.shape = 21,          # outlier points as open circles
+    outlier.size  = 2.5,
+    outlier.fill  = "white",
+    outlier.colour= "grey40"
+  ) +
+
+  # Overlay individual data points (jittered so they don't overlap)
+  geom_jitter(
+    width  = 0.05,
+    alpha  = 0.5,
+    size   = 1.8,
+    colour = "grey20"
+  ) +
+
+  # Breakpoint reference line
+  geom_hline(
+    yintercept = bp_cip_log2,
+    linetype   = "dashed",
+    colour     = "#c0392b",
+    linewidth  = 0.9
+  ) +
+  annotate(
+    "text", x = 5.6, y = bp_cip_log2 + 0.15,
+    label = "EUCAST\nbreakpoint\n(1 mg/L)",
+    hjust = 1, size = 3, colour = "#c0392b"
+  ) +
+
+  # Ward colours: one colour per ward
+  scale_fill_manual(
+    values = c("ICU" = "#3498db", "SUR" = "#e67e22",
+               "MED" = "#27ae60", "PED" = "#9b59b6",
+               "OBS" = "#e74c3c"),
+    guide  = "none"   # legend not needed — wards labelled on x-axis
+  ) +
+
+  # y-axis: show real MIC values
+  scale_y_continuous(
+    breaks = log2(c(0.06, 0.12, 0.25, 0.5, 1, 2, 4, 8, 16, 32)),
+    labels = c("0.06","0.12","0.25","0.5","1","2","4","8","16","32")
+  ) +
+
+  labs(
+    title    = "K. pneumoniae ciprofloxacin MIC distribution by ward",
+    subtitle = "Each point = one isolate | Dashed line = EUCAST 2025 breakpoint (1 mg/L)",
+    x        = "Ward",
+    y        = "Ciprofloxacin MIC (mg/L) — log₂ scale",
+    caption  = "Data source: Teaching dataset | First isolates only"
+  )
+
+p_box
+```
+
+::: {.learn-box}
+**Interpreting this box plot**
+
+- **MED** has the highest median MIC (box sits highest on the y-axis), meaning ICU
+  isolates tend to be more resistant. This is expected — ICU patients receive more
+  antibiotic courses, creating selection pressure.
+- **Obstetrics** has the lowest median MIC — most isolates are susceptible.
+- Any ward where the **median line is above the dashed breakpoint** has >50% of
+  its isolates classified as resistant. This is a red flag.
+- **Outlier dots** far above the main box indicate individual isolates with very high
+  MICs — these could represent carbapenem-resistant or XDR strains worth investigating.
+
+**Action:** Wards with high median MICs should have targeted stewardship reviews
+and tighter infection control measures.
+:::
+
+---
+
+# Visualization 4: Scatter Plot — Trends Over Time and Correlations
+
+Scatter plots in AMR surveillance are used for two distinct purposes:
+
+1. **Trend over time** — showing how resistance % changes across quarterly periods
+2. **Correlation** — showing whether antibiotic consumption is associated with rising resistance
+
+## 4.1 Import trend and consumption data
+
+```{r trend-import}
+# ── Import pre-aggregated quarterly resistance data ───────────────────────
+quarterly_r <- read_excel(excel_file, sheet = "Quarterly_R") %>%
+  clean_names()
+
+# ── Import consumption data ───────────────────────────────────────────────
+consumption <- read_excel(excel_file, sheet = "Consumption") %>%
+  clean_names()
+
+head(quarterly_r)
+```
+
+## 4.2 Trend scatter plot: Resistance over time
+
+```{r scatter-trend, fig.width=9, fig.height=5}
+# ── Prepare the trend data ────────────────────────────────────────────────
+# We will plot K. pneumoniae ciprofloxacin resistance (kp_cip) over time
+
+kp_trend <- quarterly_r %>%
+  dplyr:: select(quarter, time_id, pct_r = kp_cip) %>%
+  mutate(
+    quarter = factor(quarter, levels = c("Q1-2022","Q2-2022",
+                                         "Q3-2022","Q4-2022"))
+  )
+
+# ── Fit a linear regression model ────────────────────────────────────────
+model <- lm(pct_r ~ time_id, data = kp_trend)
+summary(model)
+
+# Extract key statistics for the annotation
+slope   <- round(coef(model)[2], 2)
+r2      <- round(summary(model)$r.squared, 3)
+p_value <- round(coef(summary(model))[2, 4], 4)
+
+# Create prediction data for the regression line
+pred_df <- data.frame(time_id = seq(1, 4, length.out = 50))
+preds   <- predict(model, newdata = pred_df, interval = "confidence")
+pred_df <- cbind(pred_df, preds)
+
+# ── Build the scatter plot ────────────────────────────────────────────────
+p_scatter <- ggplot(kp_trend, aes(x = time_id, y = pct_r)) +
+
+  # Confidence interval ribbon (shaded area around regression line)
+  geom_ribbon(
+    data = pred_df,
+    aes(x = time_id, ymin = lwr, ymax = upr),
+    fill  = "#3498db", alpha = 0.12,
+    inherit.aes = FALSE
+  ) +
+
+  # Regression line
+  geom_line(
+    data = pred_df,
+    aes(x = time_id, y = fit),
+    colour    = "#3498db",
+    linetype  = "dashed",
+    linewidth = 1,
+    inherit.aes = FALSE
+  ) +
+
+  # Connecting line between points
+  geom_line(colour = "grey60", linewidth = 0.7) +
+
+  # Data points — coloured by resistance level
+  geom_point(
+    aes(fill = pct_r),
+    shape = 21, size = 5,
+    colour = "white", stroke = 1.2
+  ) +
+
+  # Colour scale: green → amber → red
+  scale_fill_gradientn(
+    colours = c("#27ae60", "#f39c12", "#e74c3c"),
+    values  = rescale(c(0, 50, 100)),
+    limits  = c(0, 100),
+    name    = "Resistance (%)"
+  ) +
+
+  # Quarter labels on x-axis
+  scale_x_continuous(
+    breaks = 1:4,
+    labels = levels(kp_trend$quarter)
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, 100),
+    labels = function(x) paste0(x, "%")
+  ) +
+
+  # Regression equation annotation
+  annotate(
+    "text",
+    x = 1, y = 95,
+    label = paste0(
+      "β = +", slope, "% per quarter\n",
+      "R² = ", r2, "\n",
+      "p = ", p_value
+    ),
+    hjust  = 0, vjust = 1,
+    size   = 3.5, colour = "#2c3e50",
+    fontface = "italic"
+  ) +
+
+  labs(
+    title    = "K. pneumoniae ciprofloxacin resistance — quarterly trend",
+    subtitle = "Dashed line = linear regression | Shaded area = 95% confidence interval",
+    x        = "Quarter",
+    y        = "Resistance rate (%)",
+    caption  = "Data source: Teaching dataset | First isolates only"
+  )
+
+p_scatter
+```
+
+::: {.learn-box}
+**Interpreting the trend plot**
+
+- **Beta (β):** The slope of the regression line, in units of "% change per quarter."
+  A positive β (e.g., +3.2%) means resistance is **rising** each quarter.
+- **R²:** How well the time variable explains the variation in resistance.
+  R² = 0.95 means 95% of the variation in resistance is explained by time — a strong trend.
+- **p-value:** Tests whether the slope is statistically significantly different from zero.
+  p < 0.05 means the trend is unlikely to be due to chance alone.
+
+**Important limitation:** With only 4 time points, the statistical power is low.
+Even a significant p-value should be interpreted cautiously with so few data points.
+Always note this limitation when reporting.
+:::
+
+## 4.3 Correlation: Consumption vs Resistance
+
+```{r scatter-corr, fig.width=8, fig.height=5.5}
+# ── Summarise ciprofloxacin consumption by quarter ────────────────────────
+cip_consumption <- consumption %>%
+  filter(str_detect(drug_name, "Cipro|cipro")) %>%
+  group_by(quarter) %>%
+  summarise(
+    cip_ddd_1000pd = round(sum(ddd_dispensed) / sum(patient_days) * 1000, 1),
+    .groups = "drop"
+  )
+
+# Join with resistance data
+corr_df <- left_join(
+  cip_consumption,
+  quarterly_r %>% dplyr::select(quarter, kp_cip),
+  by = "quarter"
+) %>%
+  filter(!is.na(kp_cip))
+
+# Pearson correlation
+cor_test <- cor.test(corr_df$cip_ddd_1000pd, corr_df$kp_cip, method = "pearson")
+cat(sprintf("Pearson r = %.3f | p = %.4f\n",
+            cor_test$estimate, cor_test$p.value))
+
+# ── Scatter: DDD vs resistance ────────────────────────────────────────────
+p_corr <- ggplot(corr_df,
+                 aes(x = cip_ddd_1000pd, y = kp_cip,
+                     label = quarter)) +
+
+  geom_smooth(method = "lm", se = TRUE,
+              colour = "grey60", fill = "grey90",
+              linewidth = 0.8) +
+
+  geom_point(aes(colour = quarter), size = 5, shape = 17) +
+
+  geom_text(vjust = -1, hjust = 0.5, size = 3.5, fontface = "bold") +
+
+  scale_colour_manual(
+    values = c("Q1-2022" = "#3498db", "Q2-2022" = "#e67e22",
+               "Q3-2022" = "#e74c3c", "Q4-2022" = "#27ae60"),
+    guide = "none"
+  ) +
+
+  scale_y_continuous(limits = c(65, 95),
+                     labels = function(x) paste0(x, "%")) +
+
+  labs(
+    title    = "Ciprofloxacin consumption vs K. pneumoniae resistance",
+    subtitle = paste0("Pearson r = ", round(cor_test$estimate, 3),
+                      " | Ecological correlation — not individual-level causation"),
+    x        = "Ciprofloxacin DDD per 1,000 patient days",
+    y        = "K. pneumoniae CIP resistance (%)",
+    caption  = "Each point = one quarter | Regression line with 95% CI shown"
+  )
+
+p_corr
+```
+
+::: {.danger-box}
+**The Ecological Fallacy — a critical warning**
+
+When we correlate ward-level antibiotic consumption with ward-level resistance rates,
+we are doing an **ecological study**. This means:
+
+- We cannot say that *patients who received ciprofloxacin* are more likely to become resistant
+- Many other factors (clonal outbreak, patient mix, infection control) drive resistance
+- The correlation may be spurious, especially with only 4 quarterly data points
+
+Always add this caveat when reporting consumption-resistance correlations.
+:::
+
+---
+
+# Visualization 5: Heatmap — The Full Resistance Overview
+
+::: {.learn-box}
+**When to use a heatmap in AMR surveillance**
+
+A heatmap is the **information-densest** AMR visualization. It shows resistance rates
+for many organism-antibiotic combinations at once using colour intensity.
+
+It is the standard format for:
+- Annual antibiogram presentations to infection control committees
+- Hospital-level AMR reports to management
+- Quick identification of which organism-antibiotic combinations are in crisis
+:::
+
+## Calculate all resistance rates
+
+```{r heatmap-calc}
+# ── Calculate resistance for all priority organism-antibiotic pairs ────────
+# We build a helper function then call it for each pair
+
+pairs <- list(
+  list(org="Klebsiella pneumoniae",   ab="cip"), list(org="Klebsiella pneumoniae",   ab="mem"),
+  list(org="Klebsiella pneumoniae",   ab="ctx"), list(org="Klebsiella pneumoniae",   ab="gen"),
+  list(org="Escherichia coli",        ab="amp"), list(org="Escherichia coli",        ab="ctx"),
+  list(org="Escherichia coli",        ab="cip"), list(org="Escherichia coli",        ab="sxt"),
+  list(org="Staphylococcus aureus",   ab="oxa"), list(org="Staphylococcus aureus",   ab="gen"),
+  list(org="Staphylococcus aureus",   ab="cip"),
+  list(org="Pseudomonas aeruginosa",  ab="mem"), list(org="Pseudomonas aeruginosa",  ab="cip"),
+  list(org="Acinetobacter baumannii", ab="mem"), list(org="Acinetobacter baumannii", ab="cip"),
+  list(org="Acinetobacter baumannii", ab="col")
+)
+
+all_resist <- bind_rows(lapply(pairs, function(p) {
+  calc_resistance_ci(clean_data, p$org, p$ab)
+}))
+
+# Short organism names
+all_resist <- all_resist %>%
+  mutate(
+    org_short = case_when(
+      organism == "Klebsiella pneumoniae"   ~ "K. pneumoniae",
+      organism == "Escherichia coli"        ~ "E. coli",
+      organism == "Staphylococcus aureus"   ~ "S. aureus",
+      organism == "Pseudomonas aeruginosa"  ~ "P. aeruginosa",
+      organism == "Acinetobacter baumannii" ~ "A. baumannii",
+      TRUE ~ organism
+    ),
+    # Flag small sample sizes
+    label = paste0(pct_R, "%", ifelse(n_tested < 30, "*", ""))
+  )
+
+# Preview
+all_resist %>%
+  dplyr::select(org_short, antibiotic, n_tested, pct_R, label) %>%
+  kable(caption = "Table 4. Resistance rates for heatmap") %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+## Create the heatmap
+
+```{r heatmap-plot, fig.width=11, fig.height=5.5}
+# ── Order organisms by clinical priority ──────────────────────────────────
+org_order <- c("A. baumannii","P. aeruginosa","K. pneumoniae",
+                "E. coli","S. aureus")
+ab_order  <- c("COL","MEM","CTX","AMP","CIP","GEN","SXT","OXA")
+
+all_resist <- all_resist %>%
+  mutate(
+    org_short  = factor(org_short,  levels = org_order),
+    antibiotic = factor(antibiotic, levels = ab_order)
+  )
+
+p_heat <- ggplot(
+  all_resist,
+  aes(x = antibiotic, y = org_short, fill = pct_R)
+) +
+
+  # Tiles — white lines between tiles act as grid lines
+  geom_tile(colour = "white", linewidth = 1.5) +
+
+  # Text label inside each tile
+  geom_text(
+    aes(label = label,
+        colour = pct_R > 50),   # white text on dark tiles, dark on light
+    size      = 3.5,
+    fontface  = "bold"
+  ) +
+
+  # Colour scale: green → amber → red
+  scale_fill_gradientn(
+    colours   = c("#27ae60", "#f1c40f", "#e74c3c"),
+    values    = rescale(c(0, 40, 100)),
+    limits    = c(0, 100),
+    na.value  = "grey85",
+    name      = "Resistance (%)",
+    guide     = guide_colourbar(barwidth = 12, barheight = 0.5,
+                                title.position = "top",
+                                title.hjust    = 0.5)
+  ) +
+
+  # Text colour: white on high-resistance tiles, dark on low
+  scale_colour_manual(values = c("TRUE" = "white", "FALSE" = "#2c3e50"),
+                      guide = "none") +
+
+  labs(
+    title    = "Antimicrobial resistance heatmap — 2022",
+    subtitle = "Priority pathogens × Antibiotics | *n < 30 isolates (interpret with caution) | Grey = not tested",
+    x        = "Antibiotic",
+    y        = NULL,
+    caption  = "Data source: Teaching dataset | First isolates only | EUCAST 2025 breakpoints"
+  ) +
+
+  theme(
+    axis.text.y     = element_text(face = "italic", size = 11),
+    axis.text.x     = element_text(face = "bold", size = 11),
+    legend.position = "bottom",
+    panel.grid      = element_blank()
+  )
+
+p_heat
+```
+
+::: {.learn-box}
+**Reading the heatmap**
+
+- **Dark red tiles** = high resistance — these organism-antibiotic combinations
+  are failing and cannot be used empirically
+- **Green tiles** = low resistance — these remain effective
+- **Grey tiles** = not tested (e.g., colistin not tested for S. aureus because
+  Gram-positives are intrinsically resistant)
+- **Asterisk (*)** = fewer than 30 isolates — the rate is unreliable
+
+**Pattern to look for:**
+If an entire row is red (like A. baumannii), that organism is approaching XDR
+(extensively drug resistant) status and management requires specialist input.
+:::
+
+---
+
+# Combining Charts: Creating a Dashboard Figure
+
+For reports and presentations, you often want to show multiple related charts together.
+The `patchwork` package makes this easy:
+
+```{r dashboard, fig.width=13, fig.height=10}
+# ── Combine the bar plot and heatmap into one figure ──────────────────────
+combined <- (p_bar / p_heat) +
+  plot_annotation(
+    title   = "AMR Surveillance Dashboard — Kpandai District Hospital, 2022",
+    caption = "First isolates only | EUCAST 2025 breakpoints | *n < 30",
+    theme   = theme(
+      plot.title   = element_text(size = 16, face = "bold",
+                                   colour = "#1A4A8A", hjust = 0.5),
+      plot.caption = element_text(size = 9, colour = "grey50")
+    )
+  ) +
+  plot_layout(heights = c(1.2, 1))
+
+combined
+```
+
+```{r dashboard-save, eval=FALSE}
+# ── Save dashboard figure ─────────────────────────────────────────────────
+ggsave(
+  "AMR_Dashboard_2022.png",
+  plot   = combined,
+  width  = 13,
+  height = 10,
+  dpi    = 300
+)
+```
+
+---
+
+# Putting It All Together: A Complete Reporting Workflow
+
+```{r full-workflow, eval=FALSE}
+# ── COMPLETE WORKFLOW — COPY THIS FOR YOUR OWN HOSPITAL DATA ──────────────
+
+# 1. Set your file path
+my_file <- "path/to/your/data.xlsx"
+
+# 2. Import
+raw <- read_excel(my_file, sheet = "YourSheetName") %>% clean_names()
+
+# 3. Clean
+clean <- raw %>%
+  filter(!is.na(patient_id)) %>%                          # remove blanks
+  mutate(organism_std = str_to_title(str_trim(organism))) # standardise names
+
+# 4. First isolate rule
+analysis <- clean %>%
+  arrange(patient_id, organism_std, collection_date) %>%
+  group_by(patient_id, organism_std) %>%
+  slice(1) %>%  # keep only the first row per group
+  ungroup()
+
+# 5. Calculate resistance
+results <- calc_resistance_ci(analysis, "Klebsiella pneumoniae", "cip")
+
+# 6. Plot
+p <- ggplot(results, aes(x = antibiotic, y = pct_R, fill = pct_R)) +
+  geom_col() + amr_theme
+
+# 7. Save
+ggsave("my_resistance_plot.png", plot = p, width = 8, height = 5, dpi = 300)
+```
+
+---
+
+# Session Information
+
+It is good practice to include session information at the end of your R Markdown document.
+This records exactly which versions of R and each package were used — important for
+reproducibility.
+
+```{r session-info}
+sessionInfo()
+```
+
+---
+
+::: {.tip-box}
+**Next steps **
+
+1. **Exercise :** Use this Rmd with your own hospital's WHONET export. Follow the same cleaning steps.
+
+2. Explore the `AMR` package in R — purpose-built for clinical microbiology data analysis with built-in EUCAST/CLSI breakpoints.
+:::
+
+---
+
+*AMR Surveillance Training Programme |  Data Visualization in R | Version 1.0, 2026*
